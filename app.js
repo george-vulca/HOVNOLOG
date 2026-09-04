@@ -1,0 +1,190 @@
+const SUPABASE_URL='https://evfopdvylwslxmkymtlr.supabase.co';
+const SUPABASE_KEY='sb_publishable_PGFKecfl10PRIlDXUX2C2w_NwbVQ6Kd';
+const AUTH=`${SUPABASE_URL}/auth/v1`;
+const API=`${SUPABASE_URL}/rest/v1/records_v6`;
+let entries=[];
+let selectedRating=null;
+let session=null,profile=null,families=[],children=[],selectedChildId=null,childFormMode='edit',appAccessAdmin=false;
+let pendingAvatarBlob=null,removeAvatarRequested=false,activeAvatarUrl=null,previewAvatarUrl=null;
+const $=s=>document.querySelector(s);
+const fmtDate=d=>new Intl.DateTimeFormat('cs-CZ',{weekday:'short',day:'numeric',month:'numeric'}).format(d);
+const fmtLong=d=>new Intl.DateTimeFormat('cs-CZ',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(d);
+const pad=n=>String(n).padStart(2,'0');
+const headers=(extra={})=>({'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session?.access_token||SUPABASE_KEY}`,'Content-Type':'application/json',...extra});
+function nowLocal(){const d=new Date();return{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`}}
+function scoreText(n){if(n<=3)return'🟢 Lehká práce';if(n<=6)return'🟡 Standardní náklad';if(n<=8)return'🟠 Těžká směna';if(n<=10)return'🔴 Krizová situace';return'☢️ PLENKA SELHALA';}
+function scoreValue(n){return`${n}/10`}
+function parseEntry(e){return new Date(`${e.date}T${e.time}:00`)}
+function sorted(){return[...entries].sort((a,b)=>parseEntry(b)-parseEntry(a))}
+function daysAgoDate(i){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);return d}
+function dateKey(d){return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function dbToEntry(r){const d=new Date(r.poop_time);return{id:String(r.id),date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,rating:r.rating,note:r.note||'',author:r.author||''}}
+function entryToDb(){const date=$('#entryDate').value,time=$('#entryTime').value;return{child_id:selectedChildId,created_by:session.user.id,poop_time:new Date(`${date}T${time}:00`).toISOString(),rating:selectedRating,note:$('#entryNote').value.trim(),author:profile?.display_name||session.user.email}}
+async function loadEntries(silent=false){if(!session||!selectedChildId)return;try{const r=await fetch(`${API}?select=*&child_id=eq.${encodeURIComponent(selectedChildId)}&order=poop_time.desc`,{headers:headers()});if(!r.ok)throw new Error(await r.text());entries=(await r.json()).map(dbToEntry);render();if(!silent)toast('☁️ Synchronizováno');}catch(e){console.error(e);toast('⚠️ Nelze načíst databázi');}}
+function render(){const s=sorted(),last=s[0];if(last){$('#lastPoop').textContent=`${last.time} • 💩 ${scoreValue(last.rating)}`;const diff=Date.now()-parseEntry(last).getTime(),hrs=Math.max(0,Math.floor(diff/3600000)),mins=Math.max(0,Math.floor((diff%3600000)/60000));$('#lastPoopSub').textContent=`${scoreText(last.rating)} • před ${hrs?hrs+' h ':''}${mins} min`;}else{$('#lastPoop').textContent='Plenka hlásí klid 🧷';$('#lastPoopSub').textContent='Čekáme na první zásilku…';}
+const wl=$('#weekList');wl.innerHTML='';let week=[];for(let i=0;i<7;i++){const d=daysAgoDate(i),key=dateKey(d),day=entries.filter(e=>e.date===key).sort((a,b)=>a.time.localeCompare(b.time));week.push(...day);const row=document.createElement('div');row.className='day-row';const avg=day.length?(day.reduce((a,x)=>a+x.rating,0)/day.length).toFixed(1):'';row.innerHTML=`<div class="day-left"><b>${i===0?'Dnes':fmtDate(d)}</b><small>${day.length?day.length+'× • průměr '+avg+'/10':'Plenka hlásí klid 🧷'}</small></div><div class="poop-icons ${day.length?'':'empty'}">${day.length?'💩'.repeat(Math.min(day.length,6))+(day.length>6?' +'+(day.length-6):''):'—'}</div>`;row.onclick=()=>showDay(key);wl.appendChild(row);}$('#statCount').textContent=week.length;$('#statAvg').textContent=week.length?(week.reduce((a,x)=>a+x.rating,0)/week.length).toFixed(1)+'/10':'—';$('#stat11').textContent=week.filter(x=>x.rating===11).length;}
+function openEntry(entry=null){const n=nowLocal();$('#entryDate').value=entry?.date||n.date;$('#entryTime').value=entry?.time||n.time;$('#entryNote').value=entry?.note||'';$('#editId').value=entry?.id||'';selectedRating=entry?.rating||null;document.querySelectorAll('.rating-btn').forEach(b=>b.classList.toggle('selected',Number(b.dataset.rating)===selectedRating));$('#ratingCaption').textContent=selectedRating?scoreText(selectedRating):'Vyber skóre 1–10, nebo speciální 11/10 mimo plenu';$('#entryDialog').showModal();}
+function closeEntry(){$('#entryDialog').close()}
+for(let i=1;i<=11;i++){const b=document.createElement('button');b.type='button';b.className='rating-btn';b.dataset.rating=i;b.textContent=i===11?'💥 11/10 • MIMO PLENU':i;b.onclick=()=>{selectedRating=i;document.querySelectorAll('.rating-btn').forEach(x=>x.classList.toggle('selected',x===b));$('#ratingCaption').textContent=scoreText(i)};$('#ratingGrid').appendChild(b)}
+$('#entryForm').addEventListener('submit',async e=>{e.preventDefault();if(!selectedRating){toast('Nejdřív vyber hodnocení 💩');return}const id=$('#editId').value,payload=entryToDb();try{const url=id?`${API}?id=eq.${encodeURIComponent(id)}`:API;const r=await fetch(url,{method:id?'PATCH':'POST',headers:headers({'Prefer':'return=representation'}),body:JSON.stringify(payload)});if(!r.ok)throw new Error(await r.text());const savedRating=selectedRating;closeEntry();await loadEntries(true);v5celebrate(savedRating);}catch(err){console.error(err);toast('⚠️ Uložení se nepovedlo')}});
+function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)}
+function openPanel(title,eyebrow,html){$('#panelTitle').textContent=title;$('#panelEyebrow').textContent=eyebrow;$('#panelContent').innerHTML=html;$('#panelDialog').showModal()}
+function historyHtml(filterDate=null){const s=sorted().filter(e=>!filterDate||e.date===filterDate);if(!s.length)return`<div class="card" style="padding:20px;text-align:center">🧷 Tady zatím nic není.</div>`;const groups={};s.forEach(e=>(groups[e.date]??=[]).push(e));return Object.entries(groups).map(([date,arr])=>`<div class="history-group"><div class="history-date">${fmtLong(new Date(date+'T12:00:00'))}</div>${arr.map(e=>`<div class="history-item"><div class="score ${e.rating===11?'eleven':''}">${e.rating===11?'💥':'💩'}<br>${scoreValue(e.rating)}</div><div class="history-time"><b>${e.time} • ${scoreText(e.rating)}</b><small>${e.note||'Bez poznámky'}</small></div><div class="actions"><button onclick="editEntry('${e.id}')">✏️</button><button onclick="deleteEntry('${e.id}')">🗑️</button></div></div>`).join('')}</div>`).join('')}
+window.editEntry=id=>{const e=entries.find(x=>x.id===id);if(e){$('#panelDialog').close();openEntry(e)}};
+window.deleteEntry=async id=>{if(!confirm('Opravdu smazat tento záznam?'))return;try{const r=await fetch(`${API}?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',headers:headers()});if(!r.ok)throw new Error(await r.text());$('#panelDialog').close();await loadEntries(true);showHistory();toast('🗑️ Záznam smazán');}catch(e){console.error(e);toast('⚠️ Smazání se nepovedlo')}};
+function showHistory(){openPanel('ARCHIV PLENEK','Kompletní archiv plenek',historyHtml())}function showDay(date){openPanel('Detail dne','Denní zásilky',historyHtml(date))}
+function statsHtml(){const s=sorted();if(!s.length)return`<div class="card" style="padding:20px;text-align:center">📊 HOVNOMETR 📊 se objeví po prvním záznamu.</div>`;const avg=(s.reduce((a,x)=>a+x.rating,0)/s.length).toFixed(1),max=Math.max(...s.map(x=>x.rating)),elev=s.filter(x=>x.rating===11).length,dates=[...new Set(s.map(x=>x.date))].sort(),first=new Date(dates[0]+'T12:00:00'),last=new Date(dates.at(-1)+'T12:00:00'),span=Math.max(1,Math.round((last-first)/86400000)+1),perDay=(s.length/span).toFixed(2);let bars='';for(let i=1;i<=11;i++){const c=s.filter(x=>x.rating===i).length,pct=Math.round(c/s.length*100);bars+=`<div class="bar-wrap"><div class="bar-label"><span>${i===11?'💥 11/10 • MIMO PLENU':i+'/10'}</span><span>${c}× • ${pct}%</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>`}return`<div class="kpi"><div class="card"><small>Celkem</small><b>${s.length} 💩</b></div><div class="card"><small>Průměr</small><b>${avg}/10</b></div><div class="card"><small>Nejvyšší</small><b>${max}/10</b></div><div class="card"><small>Průměr / den</small><b>${perDay}</b></div></div>${elev?`<div class="danger-box"><small>Containment failure detected</small><br><b>☢️ Plenka selhala ${elev}×</b></div>`:''}<h3>Rozložení hodnocení</h3>${bars}`}
+function showStats(){openPanel('HOVNOMETR 📊','Datová věda v plenkách',statsHtml())}
+$('#addPoop').onclick=()=>openEntry();$('#navAdd').onclick=()=>openEntry();$('#closeEntry').onclick=closeEntry;$('#openHistory').onclick=showHistory;$('#openStats').onclick=showStats;$('#closePanel').onclick=()=>$('#panelDialog').close();document.querySelectorAll('[data-view="history"]').forEach(b=>b.onclick=showHistory);document.querySelectorAll('[data-view="stats"]').forEach(b=>b.onclick=showStats);
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+
+function v5grams(n){return [0,5,10,20,30,45,60,80,105,130,160,200][Number(n)]||0}
+function v5cat(n){n=Number(n);if(n<=3)return['🟢','LEHKÁ ZÁSILKA','Plenka téměř bez újmy.'];if(n<=6)return['🟡','STANDARDNÍ NÁKLAD','Běžný provoz. Situace pod kontrolou.'];if(n<=10)return['🔴','TĚŽKÝ KALIBR','Plenka pracovala na hranici konstrukčních možností.'];return['☢️','PLENKOVÁ HAVÁRIE','CONTAINMENT FAILURE. Náklad opustil vyhrazený prostor.']}
+function v5date(e){return parseEntry(e)}
+function v5week(offset=0){let end=new Date();end.setHours(23,59,59,999);end.setDate(end.getDate()-offset*7);let start=new Date(end);start.setDate(start.getDate()-6);start.setHours(0,0,0,0);return entries.filter(e=>v5date(e)>=start&&v5date(e)<=end)}
+function v5chart(){
+ let a=[...entries].sort((x,y)=>v5date(x)-v5date(y)).slice(-30);if(!a.length)return '<div class="chartbox">Zatím bez dat.</div>';
+ let w=320,h=160,p=20,pts=a.map((e,i)=>[p+i*(w-2*p)/Math.max(1,a.length-1),h-p-((e.rating-1)/10)*(h-2*p)]);
+ let line=pts.map(x=>x.join(',')).join(' ');
+ let trend=a.map((e,i)=>{let z=a.slice(Math.max(0,i-6),i+1),av=z.reduce((q,x)=>q+Number(x.rating),0)/z.length;return[p+i*(w-2*p)/Math.max(1,a.length-1),h-p-((av-1)/10)*(h-2*p)]}).map(x=>x.join(',')).join(' ');
+ return `<div class="chartbox"><svg viewBox="0 0 320 160"><line x1="20" y1="20" x2="20" y2="140" stroke="#d8cbb8"/><line x1="20" y1="140" x2="300" y2="140" stroke="#d8cbb8"/><text x="0" y="25">11/10</text><text x="7" y="142">1</text><polyline points="${line}" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="${trend}" fill="none" stroke="currentColor" stroke-width="5" opacity=".22"/></svg><small>tenká = zásilky • silná = 7záznamový trend</small></div>`
+}
+function showAdvanced(){
+ let s=[...entries].sort((a,b)=>v5date(a)-v5date(b)),w=v5week(0),pw=v5week(1);
+ let avg=w.length?(w.reduce((a,x)=>a+Number(x.rating),0)/w.length).toFixed(1):'—', kg=s.reduce((a,x)=>a+v5grams(x.rating),0)/1000,wkg=w.reduce((a,x)=>a+v5grams(x.rating),0)/1000;
+ let change=pw.length?Math.round((w.length-pw.length)/pw.length*100):null,ints=[];for(let i=1;i<s.length;i++)ints.push((v5date(s[i])-v5date(s[i-1]))/3600000);
+ let int=ints.length?(ints.reduce((a,x)=>a+x,0)/ints.length).toFixed(1)+' h':'—', longest=ints.length?Math.max(...ints).toFixed(1)+' h':'—';
+ let crashes=s.filter(x=>Number(x.rating)===11),max24=0;for(let i=0;i<s.length;i++){let st=v5date(s[i]);max24=Math.max(max24,s.filter(x=>v5date(x)>=st&&v5date(x)<=new Date(st.getTime()+86400000)).length)}
+ let run=0,best=0;s.forEach(x=>{if(Number(x.rating)===11)run=0;else{run++;best=Math.max(best,run)}})
+ let hall=crashes.slice().reverse().map(x=>`<div class="crashrow"><b>💥 ${x.date} • ${x.time}</b><br><small>${x.note||'Bez hlášení z místa činu'}</small></div>`).join('')||'<small>Zatím bez narušení perimetru. 🧷</small>';
+ let html=`<div class="v5-grid"><div class="card v5-kpi"><small>TÝDENNÍ PRODUKCE</small><b>${w.length} 💩</b></div><div class="card v5-kpi"><small>ODHAD PRODUKCE</small><b>${wkg.toFixed(2)} kg</b></div><div class="card v5-kpi"><small>PRŮMĚRNÁ NÁLOŽ</small><b>${avg}${avg==='—'?'':'/10'}</b></div><div class="card v5-kpi"><small>VS. MINULÝ TÝDEN</small><b>${change===null?'—':(change>=0?'+':'')+change+'%'}</b></div><div class="card v5-kpi"><small>PRŮMĚRNÝ INTERVAL</small><b>${int}</b></div><div class="card v5-kpi"><small>HAVÁRIE TÝDNE</small><b>${w.filter(x=>Number(x.rating)===11).length} ☢️</b></div></div><div class="card lifetime"><small>⚖️ CELOŽIVOTNÍ PRODUKCE</small><b>${kg.toFixed(2)} kg 💩</b><small>HOVNOLOG Weight Index™ • orientační odhad</small></div><h3>📈 VÝVOJ NÁLOŽE</h3>${v5chart()}<div class="hall"><h3>☢️ HALL OF SHAME</h3><b>Celkem havárií: ${crashes.length}</b>${hall}</div><h3>🏆 KRISTIÁNKOVA SÍŇ REKORDŮ</h3><div class="v5-grid"><div class="card v5-kpi"><small>NEJVÍC ZA 24 H</small><b>${max24} 💩</b></div><div class="card v5-kpi"><small>NEJDELŠÍ KLID ZBRANÍ</small><b>${longest}</b></div><div class="card v5-kpi"><small>SÉRIE BEZ HAVÁRIE</small><b>${best} zásilek</b></div><div class="card v5-kpi"><small>PLENEK VE SLUŽBĚ</small><b>${s.length}</b></div></div>`;
+ openPanel('HOVNOMETR 📊','ADVANCED ANALYTICS',html)
+}
+function v5celebrate(n){
+ const rating=Number(n),el=document.getElementById('celebrateV5')||Object.assign(document.createElement('div'),{id:'celebrateV5'});
+ if(!el.parentNode)document.body.appendChild(el);
+ const pick=a=>a[Math.floor(Math.random()*a.length)];
+ const light=[
+  ['💩✨','LEHKÁ ZÁSILKA DORUČENA','Plenka téměř bez újmy. Mise splněna.'],
+  ['📨💩','EXPRESNÍ BALÍČEK PŘIJAT','Malý balíček, velká administrativní stopa.'],
+  ['🛰️💩','HOVNOCENTRUM HLÁSÍ PŘÍJEM','Drobné hovínko úspěšně zachyceno radarem.'],
+  ['🧾💩','MININÁKLAD ZAÚČTOVÁN','Účetní oddělení potvrzuje: i tohle se počítá.'],
+  ['🪶💩','LEHKÁ VÁHOVÁ KATEGORIE','Plenka ani nestihla podat stížnost.'],
+  ['🔬💩','MIKROZÁSILKA EVIDOVÁNA','Laboratoř potvrzuje přítomnost hovínka.'],
+  ['📦✨','DROBNÁ DODÁVKA V CÍLI','Logistika proběhla bez mimořádných událostí.'],
+  ['🫡💩','MALÝ, ALE POCTIVÝ VÝKON','HOVNOLOG salutuje. Záznam uložen.'],
+  ['🌱💩','STARTOVACÍ BALÍČEK','Nenápadné množství. Statistika však nikdy nespí.'],
+  ['✅💩','NÁKLAD PŘEVZAT','Plenka hlásí jen lehké pracovní vytížení.']
+ ];
+ const normal=[
+  ['📦💩','NÁKLAD ÚSPĚŠNĚ ZAÚČTOVÁN','Standardní provoz. Plenka situaci ustála.'],
+  ['🏭💩','HOVNOCENTRUM V PROVOZU','Zásilka přijata centrálním hovnocentrem.'],
+  ['🗃️💩','ARCHIV AKTUALIZOVÁN','Evidence hotová. Plenka může odejít do důchodu.'],
+  ['🚚💩','DODÁVKA DORAZILA','Přeprava dokončena. Bez ztráty nákladu.'],
+  ['🧑‍💼💩','ADMINISTRATIVA DOKONČENA','Náklad má číslo, čas a své místo v historii.'],
+  ['🛃💩','CELNÍ ODBAVENÍ HOTOVO','Obsah plenky byl přijat bez dalších otázek.'],
+  ['📡💩','TELEMETRIE POTVRZENA','HOVNOLOG zachytil další biologický paket.'],
+  ['🏷️💩','ZÁSILKA ŘÁDNĚ OZNAČENA','Původ známý. Pachové zkoušky nebyly vyžádány.'],
+  ['🧰💩','BĚŽNÁ SERVISNÍ UDÁLOST','Plenka odvedla práci přesně podle specifikace.'],
+  ['📋💩','PROTOKOL UZAVŘEN','Nález potvrzen. Reklamace plenky se nepřipouští.'],
+  ['🫡📦','OPERACE NÁKLAD DOKONČENA','Všichni zúčastnění mohou opustit přebalovací stanici.'],
+  ['💾💩','DATA I NÁKLAD V BEZPEČÍ','Digitální stopa zachována. Fyzická může do koše.']
+ ];
+ const heavy=[
+  ['🚨💩','TĚŽKÝ KALIBR ZAZNAMENÁN','Plenka pracovala na hranici konstrukčních možností.'],
+  ['🏗️💩','TĚŽKÁ TECHNIKA NASAZENA','Situace stabilizována. Statika plenky bude prověřena.'],
+  ['📈💩','HOVNOMETR V ČERVENÉM','Nadstandardní výkon potvrzen nezávislým měřením.'],
+  ['⚠️💩','ZVÝŠENÁ BIOLOGICKÁ AKTIVITA','Přebalovací jednotka přešla do pohotovostního režimu.'],
+  ['🚧💩','NADMĚRNÝ NÁKLAD','Doporučujeme obousměrně uzavřít přebalovací pult.'],
+  ['🏋️💩','VÁHOVÁ KATEGORIE: TĚŽKÁ','Plenka právě získala nárok na rizikový příplatek.'],
+  ['🧯💩','KRIZOVÝ TÝM INFORMOVÁN','Situace zvládnuta. Větrání místnosti doporučeno.'],
+  ['📢💩','MIMOŘÁDNÁ ZÁSILKA','HOVNOLOG žádá okolí o zachování bezpečné vzdálenosti.'],
+  ['🛰️🚨','SATELITY ZAZNAMENALY ANOMÁLII','Epicentrum bylo potvrzeno v oblasti plenky.'],
+  ['🧱💩','KONSTRUKČNÍ LIMIT TÉMĚŘ DOSAŽEN','Výrobce plenky odmítl situaci komentovat.'],
+  ['📊🚨','STATISTICKÁ ANOMÁLIE','Grafy se na chvíli zarazily a pak pokračovaly.'],
+  ['🦺💩','BOZP REŽIM AKTIVOVÁN','Ochranné pomůcky doporučeny všem v okruhu dvou metrů.']
+ ];
+ const crash=[
+  ['☢️💥💩','PLENKOVÁ HAVÁRIE','CONTAINMENT FAILURE! Náklad opustil vyhrazený prostor.'],
+  ['🚨☢️💩','KÓD HNĚDÁ','Opakujeme: KÓD HNĚDÁ. Těsnění plenky bylo překonáno.'],
+  ['🌋💩💥','ERUPCE POTVRZENA','Geologický ústav odmítá převzít odpovědnost.'],
+  ['🚒💩☢️','POPLACH NA PŘEBALOVACÍ STANICI','Běžné prostředky nestačí. Povoláváme těžkou techniku.'],
+  ['🆘💩🚧','PERIMETR NARUŠEN','Náklad překročil hranice schválené výrobcem plenky.'],
+  ['📉☢️📈','SYSTÉM MIMO ROZSAH','HOVNOMETR se zeptal, jestli to myslíte vážně.'],
+  ['🧨💩','KRITICKÉ PŘETÍŽENÍ','Plenka bojovala statečně. Historie si ji bude pamatovat.'],
+  ['🛰️☢️','UDÁLOST VIDITELNÁ Z ORBITY','Satelitní snímky budou předány Hall of Shame.'],
+  ['🧪💥💩','BIOLOGICKÝ INCIDENT 11/10','Vzorek překročil laboratorní i rodičovské normy.'],
+  ['🏆☢️💩','LEGENDÁRNÍ VÝKON','Tohle už není hovínko. Tohle je kapitola rodinné historie.'],
+  ['📣💩💥','VŠECHNY JEDNOTKY DO POHOTOVOSTI','Máme průnik! Opakujeme: máme průnik!'],
+  ['🛑☢️💩','PLENKA KAPITULOVALA','Technická komise uzavřela případ jako vyšší moc.']
+ ];
+ let icon,title,msg,sub='ULOŽENO • SYNCHRONIZOVÁNO ✓',event;
+ if(rating<=3)event=pick(light);
+ else if(rating<=6)event=pick(normal);
+ else if(rating<=10)event=pick(heavy);
+ else{event=pick(crash);sub=pick(['☢️ UDÁLOST ZAPSÁNA DO HALL OF SHAME ☢️','🚨 HAVÁRIE ARCHIVOVÁNA PRO BUDOUCÍ GENERACE','🏆 11/10 • AUTOMATICKÁ NOMINACE DO SÍNĚ HAVÁRIÍ']);}
+ [icon,title,msg]=event;
+ el.className='celebrate '+(rating===11?'crash':'');
+ el.innerHTML=`<div class="event-card"><div class="event-kicker">HOVNOLOG EVENT • ${scoreValue(rating)}</div><div class="big">${icon}</div><div class="event-title">${title}</div><div class="event-msg">${msg}</div><div class="event-sync">${sub}</div></div>`;
+ if(rating===11)for(let i=0;i<22;i++)el.insertAdjacentHTML('beforeend',`<span class="rain" style="left:${Math.random()*95}%;animation-delay:${Math.random()*.8}s">${i%4===0?'☢️':'💩'}</span>`);
+ requestAnimationFrame(()=>el.classList.add('show'));
+ clearTimeout(window.__hovnoEventTimer);window.__hovnoEventTimer=setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.innerHTML='',300)},7000);
+}
+document.addEventListener('DOMContentLoaded',()=>{let b=document.getElementById('openAdvanced');if(b)b.onclick=showAdvanced});
+
+function authMessage(text,ok=false){const el=$('#authMessage');el.textContent=text;el.style.color=ok?'#376b45':'#9a3f2f'}
+function saveSession(value){session=value;value?localStorage.setItem('hovnolog-session',JSON.stringify(value)):localStorage.removeItem('hovnolog-session')}
+function hashSession(){const p=new URLSearchParams(location.hash.slice(1));if(!p.get('access_token'))return null;return{access_token:p.get('access_token'),refresh_token:p.get('refresh_token'),expires_at:Math.floor(Date.now()/1000)+Number(p.get('expires_in')||3600),user:null,type:p.get('type')}}
+async function authFetch(path,options={}){const r=await fetch(`${AUTH}${path}`,{...options,headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json',...(options.headers||{})}});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.msg||data.error_description||data.message||'Přihlášení se nepovedlo');return data}
+async function rpc(name,body={}){const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`,{method:'POST',headers:headers(),body:JSON.stringify(body)});const data=await r.json().catch(()=>null);if(!r.ok)throw new Error(data?.message||'Operace se nepovedla');return data}
+async function getUser(){const user=await authFetch('/user',{headers:{Authorization:`Bearer ${session.access_token}`}});session.user=user;saveSession(session);return user}
+async function refreshSession(){if(!session?.refresh_token)throw new Error('Relace vypršela');const data=await authFetch('/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:session.refresh_token})});saveSession(data);return data}
+async function ensureSession(){if(!session)return false;try{if(session.expires_at&&session.expires_at<Math.floor(Date.now()/1000)+60)await refreshSession();await getUser();return true}catch(e){saveSession(null);return false}}
+async function loadFamily(){const [pr,fa,ch,isAdmin]=await Promise.all([fetch(`${SUPABASE_URL}/rest/v1/profiles?select=id,display_name&id=eq.${session.user.id}`,{headers:headers()}),fetch(`${SUPABASE_URL}/rest/v1/families?select=id,name,invite_code&order=created_at`,{headers:headers()}),fetch(`${SUPABASE_URL}/rest/v1/children?select=id,name,nickname,birth_date,notes,family_id,avatar_path&order=created_at`,{headers:headers()}),rpc('is_app_access_admin')]);if(!pr.ok||!fa.ok||!ch.ok)throw new Error('Rodinná data nejsou dostupná');appAccessAdmin=isAdmin===true;$('#accessAdminSection').hidden=!appAccessAdmin;profile=(await pr.json())[0]||{display_name:session.user.email};families=await fa.json();children=await ch.json();if(!families.length||!children.length)return false;const remembered=localStorage.getItem('hovnolog-child');selectedChildId=children.some(c=>c.id===remembered)?remembered:children[0].id;renderChildSelect();const displayName=profile.display_name||session.user.email;const initial=(displayName.trim()[0]||'U').toUpperCase();$('#currentUser').textContent=displayName;$('#currentEmail').textContent=session.user.email;$('#accountInitial').textContent=initial;$('#accountInitialLarge').textContent=initial;setChildLabels();await loadEntries(true);return true}
+function renderChildSelect(){const select=$('#childSelect');select.innerHTML='';children.forEach(child=>{const option=document.createElement('option');option.value=child.id;option.textContent=child.nickname||child.name;select.appendChild(option)});select.value=selectedChildId}
+function avatarObjectUrl(path){return `${SUPABASE_URL}/storage/v1/object/authenticated/child-avatars/${path.split('/').map(encodeURIComponent).join('/')}?v=${Date.now()}`}
+async function privateAvatarBlob(path){const r=await fetch(avatarObjectUrl(path),{headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`}});if(!r.ok)throw new Error('Fotografii se nepodařilo načíst');return r.blob()}
+function showAvatar(container,src=null){const img=container.querySelector('img'),fallback=container.querySelector('span');if(src){img.src=src;img.hidden=false;fallback.hidden=true}else{img.removeAttribute('src');img.hidden=true;fallback.hidden=false}}
+async function refreshActiveAvatar(){const child=children.find(c=>c.id===selectedChildId),box=$('#activeChildAvatar');if(activeAvatarUrl){URL.revokeObjectURL(activeAvatarUrl);activeAvatarUrl=null}showAvatar(box);if(!child?.avatar_path)return;try{activeAvatarUrl=URL.createObjectURL(await privateAvatarBlob(child.avatar_path));if(child.id===selectedChildId)showAvatar(box,activeAvatarUrl)}catch(e){console.warn(e)}}
+async function setChildLabels(){const child=children.find(c=>c.id===selectedChildId);if(!child)return;const family=families.find(f=>f.id===child.family_id);document.querySelector('.topbar .eyebrow').textContent=`${child.name} • profesionální monitoring nákladu`;document.querySelector('.v5-section h2').textContent=`🏆 ${child.name.toUpperCase()} • SÍŇ REKORDŮ`;$('#familyInviteCode').textContent=family?.invite_code||'—';await refreshActiveAvatar()}
+function resetPhotoEditor(){pendingAvatarBlob=null;removeAvatarRequested=false;$('#childPhotoInput').value='';if(previewAvatarUrl){URL.revokeObjectURL(previewAvatarUrl);previewAvatarUrl=null}showAvatar($('#childPhotoPreview'));$('#removeChildPhoto').hidden=true}
+async function loadPhotoEditor(child){resetPhotoEditor();if(!child?.avatar_path)return;try{previewAvatarUrl=URL.createObjectURL(await privateAvatarBlob(child.avatar_path));showAvatar($('#childPhotoPreview'),previewAvatarUrl);$('#removeChildPhoto').hidden=false}catch(e){console.warn(e)}}
+function childSaveMessage(text='',ok=false){const el=$('#childSaveStatus');el.textContent=text;el.classList.toggle('show',!!text);el.classList.toggle('ok',ok)}
+function openChildProfile(){const child=children.find(c=>c.id===selectedChildId);if(!child)return;childFormMode='edit';childSaveMessage();$('#childDialogTitle').textContent='👶 Údaje dítěte';$('#childName').value=child.name||'';$('#childNickname').value=child.nickname||'';$('#childBirthDate').value=child.birth_date||'';$('#childNotes').value=child.notes||'';$('#childPhotoField').hidden=false;loadPhotoEditor(child);$('#childDialog').showModal()}
+function openNewChild(){childFormMode='create';childSaveMessage();$('#childDialogTitle').textContent='👶 Přidat dítě';$('#childForm').reset();resetPhotoEditor();$('#childPhotoField').hidden=true;$('#childDialog').showModal()}
+async function resizeAvatar(file){if(!file||!file.type.startsWith('image/'))throw new Error('Vyber obrázek');const bitmap=await createImageBitmap(file);const side=Math.min(bitmap.width,bitmap.height),sx=(bitmap.width-side)/2,sy=(bitmap.height-side)/2,canvas=document.createElement('canvas');canvas.width=canvas.height=256;canvas.getContext('2d').drawImage(bitmap,sx,sy,side,side,0,0,256,256);bitmap.close?.();const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',.78));if(!blob)throw new Error('Fotografii nelze zpracovat');if(blob.size>204800)throw new Error('Fotografie je po zmenšení stále příliš velká');return blob}
+async function uploadAvatar(child,blob){const path=`${child.family_id}/${child.id}/avatar.webp`;const r=await fetch(`${SUPABASE_URL}/storage/v1/object/child-avatars/${path}`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':'image/webp','x-upsert':'true'},body:blob});if(!r.ok)throw new Error(await r.text());return path}
+async function deleteAvatar(path){if(!path)return;const r=await fetch(`${SUPABASE_URL}/storage/v1/object/child-avatars`,{method:'DELETE',headers:headers(),body:JSON.stringify({prefixes:[path]})});if(!r.ok)throw new Error(await r.text())}
+async function enterApp(){try{if(await rpc('check_app_access')!==true){try{await authFetch('/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}saveSession(null);await showAuth();authMessage('Přístup k aplikaci není schválen. Obraťte se na správce.');return}const ready=await loadFamily();$('#authScreen').hidden=true;if(!ready){showOnboarding();return}$('#onboardingScreen').hidden=true;document.querySelector('.app').hidden=false}catch(e){authMessage(e.message);await showAuth()}}
+function showOnboarding(){document.querySelector('.app').hidden=true;$('#authScreen').hidden=true;$('#onboardingScreen').hidden=false}
+async function showAuth(){document.querySelector('.app').hidden=true;$('#onboardingScreen').hidden=true;$('#authScreen').hidden=false}
+$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();authMessage('Přihlašuji…',true);try{const data=await authFetch('/token?grant_type=password',{method:'POST',body:JSON.stringify({email:$('#loginEmail').value.trim(),password:$('#loginPassword').value})});saveSession(data);await enterApp()}catch(err){authMessage(err.message)}});
+$('#toggleSignup').onclick=()=>{const opening=$('#signupForm').hidden;$('#signupForm').hidden=!opening;$('#loginForm').hidden=opening;$('#forgotPassword').hidden=opening;$('#toggleSignup').textContent=opening?'Už mám účet — přihlásit se':'Mám schválený e-mail — vytvořit účet';authMessage('')};
+$('#signupForm').addEventListener('submit',async e=>{e.preventDefault();authMessage('Vytvářím účet…',true);try{const email=$('#signupEmail').value.trim(),password=$('#signupPassword').value,name=$('#signupName').value.trim();const data=await authFetch(`/signup?redirect_to=${encodeURIComponent(location.origin)}`,{method:'POST',body:JSON.stringify({email,password,data:{display_name:name}})});if(data.access_token){saveSession(data);await enterApp()}else{authMessage('Účet je založený. Potvrď e-mail a potom se přihlas.',true);$('#signupForm').reset()}}catch(err){authMessage(err.message)}});
+$('#passwordForm').addEventListener('submit',async e=>{e.preventDefault();authMessage('Nastavuji heslo…',true);try{await authFetch('/user',{method:'PUT',headers:{Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({password:$('#newPassword').value})});await getUser();history.replaceState(null,'',location.pathname);$('#passwordForm').hidden=true;await enterApp()}catch(err){authMessage(err.message)}});
+$('#forgotPassword').onclick=async()=>{const email=$('#loginEmail').value.trim();if(!email){authMessage('Nejdřív zadej svůj e-mail.');return}try{await authFetch('/recover',{method:'POST',body:JSON.stringify({email,redirect_to:location.origin})});authMessage('Odeslali jsme odkaz pro nastavení hesla.',true)}catch(e){authMessage(e.message)}};
+$('#logoutBtn').onclick=async()=>{try{await authFetch('/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}$('#accountDialog').close();saveSession(null);entries=[];await showAuth()};
+$('#onboardingLogout').onclick=async()=>{try{await authFetch('/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}saveSession(null);await showAuth()};
+$('#childSelect').onchange=async e=>{selectedChildId=e.target.value;localStorage.setItem('hovnolog-child',selectedChildId);setChildLabels();await loadEntries(true)};
+function accessAdminMessage(text='',ok=false){const el=$('#accessAdminMessage');el.textContent=text;el.style.color=ok?'#376b45':'#8d3629'}
+async function loadAccessAdmin(){if(!appAccessAdmin)return;try{const rows=await rpc('admin_list_app_access'),list=$('#accessList');list.replaceChildren();rows.forEach(row=>{const item=document.createElement('div');item.className='access-row';const info=document.createElement('div'),email=document.createElement('b'),state=document.createElement('small');email.textContent=row.email;state.textContent=row.active?(row.registered?'Aktivní účet':'Schváleno • čeká na registraci'):'Přístup odebrán';info.append(email,state);item.append(info);if(row.email==='j.george.vulcan@gmail.com'){const label=document.createElement('span');label.className='admin-label';label.textContent='SPRÁVCE';item.append(label)}else{const button=document.createElement('button');button.type='button';button.className=row.active?'revoke':'restore';button.textContent=row.active?'Odebrat':'Obnovit';button.onclick=async()=>{button.disabled=true;try{await rpc(row.active?'admin_revoke_app_access':'admin_approve_app_access',{p_email:row.email});await loadAccessAdmin();accessAdminMessage(row.active?'Přístup odebrán.':'Přístup obnoven.',true)}catch(e){accessAdminMessage(e.message)}finally{button.disabled=false}};item.append(button)}list.append(item)})}catch(e){accessAdminMessage(e.message)}}
+$('#accountBtn').onclick=async()=>{$('#accountDialog').showModal();if(appAccessAdmin)await loadAccessAdmin()};
+$('#closeAccount').onclick=()=>$('#accountDialog').close();
+$('#editChildBtn').onclick=openChildProfile;
+$('#addChildBtn').onclick=openNewChild;
+$('#closeChild').onclick=()=>$('#childDialog').close();
+$('#chooseChildPhoto').onclick=()=>$('#childPhotoInput').click();
+$('#childPhotoInput').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{toast('Fotografii zmenšujeme…');pendingAvatarBlob=await resizeAvatar(file);removeAvatarRequested=false;if(previewAvatarUrl)URL.revokeObjectURL(previewAvatarUrl);previewAvatarUrl=URL.createObjectURL(pendingAvatarBlob);showAvatar($('#childPhotoPreview'),previewAvatarUrl);$('#removeChildPhoto').hidden=false;toast(`📷 Připraveno • ${Math.ceil(pendingAvatarBlob.size/1024)} kB`)}catch(err){console.error(err);toast('⚠️ '+err.message);e.target.value=''}};
+$('#removeChildPhoto').onclick=()=>{pendingAvatarBlob=null;removeAvatarRequested=true;if(previewAvatarUrl){URL.revokeObjectURL(previewAvatarUrl);previewAvatarUrl=null}showAvatar($('#childPhotoPreview'));$('#removeChildPhoto').hidden=true};
+$('#childForm').addEventListener('submit',async e=>{e.preventDefault();const saveBtn=$('#childSaveBtn'),payload={name:$('#childName').value.trim(),nickname:$('#childNickname').value.trim()||null,birth_date:$('#childBirthDate').value||null,notes:$('#childNotes').value.trim()||null,updated_at:new Date().toISOString()};if(!payload.name){childSaveMessage('Doplň jméno dítěte.');return}saveBtn.disabled=true;saveBtn.textContent='UKLÁDÁM…';childSaveMessage(pendingAvatarBlob?'Nahrávám a ukládám fotografii…':'Ukládám profil…',true);try{let r,child=children.find(c=>c.id===selectedChildId);if(childFormMode==='create'){const family=child?.family_id||families[0]?.id;payload.id=crypto.randomUUID();payload.family_id=family;r=await fetch(`${SUPABASE_URL}/rest/v1/children`,{method:'POST',headers:headers({'Prefer':'return=representation'}),body:JSON.stringify(payload)})}else{if(pendingAvatarBlob){payload.avatar_path=await uploadAvatar(child,pendingAvatarBlob)}else if(removeAvatarRequested){await deleteAvatar(child.avatar_path);payload.avatar_path=null}r=await fetch(`${SUPABASE_URL}/rest/v1/children?id=eq.${encodeURIComponent(selectedChildId)}`,{method:'PATCH',headers:headers({'Prefer':'return=representation'}),body:JSON.stringify(payload)})}if(!r.ok)throw new Error(await r.text());const saved=(await r.json())[0];if(childFormMode==='create'){children.push(saved);selectedChildId=saved.id;localStorage.setItem('hovnolog-child',saved.id)}else children=children.map(c=>c.id===selectedChildId?{...c,...saved}:c);renderChildSelect();await setChildLabels();$('#childDialog').close();await loadEntries(true);toast(childFormMode==='create'?'👶 Dítě přidáno':'👶 Profil dítěte uložen')}catch(err){console.error(err);childSaveMessage('Fotografii nebo profil se nepodařilo uložit. Zkuste to znovu; tato zpráva zůstane zobrazená.');}finally{saveBtn.disabled=false;saveBtn.textContent='ULOŽIT PROFIL DÍTĚTE'}});
+function onboardingMessage(text,ok=false){const el=$('#onboardingMessage');el.textContent=text;el.style.color=ok?'#376b45':'#9a3f2f'}
+function setOnboardingMode(mode){const create=mode==='create';$('#createFamilyForm').hidden=!create;$('#joinFamilyForm').hidden=create;$('#showCreateFamily').classList.toggle('active',create);$('#showJoinFamily').classList.toggle('active',!create);onboardingMessage('')}
+$('#showCreateFamily').onclick=()=>setOnboardingMode('create');$('#showJoinFamily').onclick=()=>setOnboardingMode('join');
+$('#createFamilyForm').addEventListener('submit',async e=>{e.preventDefault();onboardingMessage('Zakládám rodinu…',true);try{const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/create_family_with_child`,{method:'POST',headers:headers(),body:JSON.stringify({p_family_name:$('#newFamilyName').value.trim(),p_child_name:$('#firstChildName').value.trim(),p_birth_date:$('#firstChildBirthDate').value||null})});if(!r.ok)throw new Error(await r.text());const created=await r.json();localStorage.setItem('hovnolog-child',created.child_id);await enterApp();toast('🏡 Rodina je připravená')}catch(err){console.error(err);onboardingMessage('Rodinu se nepodařilo vytvořit. Zkus to prosím znovu.')}});
+$('#joinFamilyForm').addEventListener('submit',async e=>{e.preventDefault();onboardingMessage('Připojuji k rodině…',true);try{const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/join_family_by_code`,{method:'POST',headers:headers(),body:JSON.stringify({p_code:$('#joinFamilyCode').value})});if(!r.ok)throw new Error(await r.text());await enterApp();toast('🏡 Jste součástí rodiny')}catch(err){console.error(err);onboardingMessage('Kód není platný nebo se připojení nepodařilo.')}});
+$('#copyInviteCode').onclick=async()=>{const code=$('#familyInviteCode').textContent;if(!code||code==='—')return;try{await navigator.clipboard.writeText(code);toast('📋 Rodinný kód zkopírován')}catch{toast(`Rodinný kód: ${code}`)}};
+$('#approveAccessForm').addEventListener('submit',async e=>{e.preventDefault();const email=$('#approveAccessEmail').value.trim().toLowerCase(),button=e.submitter;button.disabled=true;accessAdminMessage('Schvaluji…',true);try{await rpc('admin_approve_app_access',{p_email:email});$('#approveAccessForm').reset();await loadAccessAdmin();accessAdminMessage(`E-mail ${email} je schválený.`,true)}catch(err){accessAdminMessage(err.message)}finally{button.disabled=false}});
+async function enforceLiveAccess(){if(!session)return false;try{if(await rpc('check_app_access')===true)return true}catch{}try{await authFetch('/logout',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}})}catch{}saveSession(null);entries=[];families=[];children=[];document.querySelector('.app').hidden=true;await showAuth();authMessage('Přístup k aplikaci byl odebrán. Obraťte se na správce.');return false}
+document.addEventListener('visibilitychange',async()=>{if(!document.hidden&&await enforceLiveAccess())await loadEntries(true)});setInterval(async()=>{if(await enforceLiveAccess())await loadEntries(true)},30000);
+(async()=>{document.querySelector('.app').hidden=true;const incoming=hashSession();if(incoming){saveSession(incoming);await getUser();if(['invite','recovery'].includes(incoming.type)){$('#loginForm').hidden=true;$('#forgotPassword').hidden=true;$('#passwordForm').hidden=false;showAuth();return}}else{try{session=JSON.parse(localStorage.getItem('hovnolog-session'))}catch{session=null}}if(await ensureSession())await enterApp();else await showAuth()})();

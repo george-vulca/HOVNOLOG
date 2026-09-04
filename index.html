@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f0df" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="HOVNOLOG" />
+  <title>HOVNOLOG 💩</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="192x192" href="https://hovnolog-6cjyxudyb-jiri-lemon-asps-projects.vercel.app/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section id="authScreen" class="auth-screen">
+    <div class="auth-card card">
+      <div class="auth-logo">💩</div>
+      <div class="eyebrow">HOVNOLOG FAMILY</div>
+      <h1>Protože i hovno si zaslouží historii.</h1>
+      <form id="loginForm">
+        <label>E-mail<input type="email" id="loginEmail" autocomplete="email" required></label>
+        <label>Heslo<input type="password" id="loginPassword" autocomplete="current-password" minlength="6" required></label>
+        <button class="save-btn" type="submit">PŘIHLÁSIT SE</button>
+      </form>
+      <form id="signupForm" hidden>
+        <p class="auth-info">Registrace je možná pouze se schváleným e-mailem.</p>
+        <label>Jméno<input type="text" id="signupName" autocomplete="name" maxlength="60" required></label>
+        <label>E-mail<input type="email" id="signupEmail" autocomplete="email" required></label>
+        <label>Heslo<input type="password" id="signupPassword" autocomplete="new-password" minlength="8" required></label>
+        <button class="save-btn" type="submit">VYTVOŘIT ÚČET</button>
+      </form>
+      <form id="passwordForm" hidden>
+        <p class="auth-info">Pozvánka přijata. Nastav si heslo pro HOVNOLOG.</p>
+        <label>Nové heslo<input type="password" id="newPassword" autocomplete="new-password" minlength="6" required></label>
+        <button class="save-btn" type="submit">NASTAVIT HESLO A VSTOUPIT</button>
+      </form>
+      <button class="text-btn auth-link" id="forgotPassword" type="button">Zapomenuté heslo</button>
+      <button class="text-btn auth-link" id="toggleSignup" type="button">Mám schválený e-mail — vytvořit účet</button>
+      <div id="authMessage" class="auth-message"></div>
+    </div>
+  </section>
+
+  <section id="onboardingScreen" class="auth-screen onboarding-screen" hidden>
+    <div class="onboarding-card card">
+      <div class="auth-logo">🏡</div>
+      <div class="eyebrow">VÍTEJTE V HOVNOLOGU</div>
+      <h1>Začněte vlastní rodinu, nebo se připojte.</h1>
+      <div class="onboarding-tabs">
+        <button class="onboarding-tab active" id="showCreateFamily" type="button">Nová rodina</button>
+        <button class="onboarding-tab" id="showJoinFamily" type="button">Mám kód</button>
+      </div>
+      <form id="createFamilyForm">
+        <label>NÁZEV RODINY<input id="newFamilyName" maxlength="60" placeholder="Např. Novákovi" required></label>
+        <label>JMÉNO PRVNÍHO DÍTĚTE<input id="firstChildName" maxlength="60" required></label>
+        <label>DATUM NAROZENÍ <span class="muted">(nepovinné)</span><input type="date" id="firstChildBirthDate"></label>
+        <button class="save-btn" type="submit">VYTVOŘIT RODINU</button>
+      </form>
+      <form id="joinFamilyForm" hidden>
+        <p class="auth-info">Zadejte rodinný kód, který vám ukáže člen dané rodiny ve svém profilu.</p>
+        <label>RODINNÝ KÓD<input id="joinFamilyCode" maxlength="14" autocomplete="off" placeholder="Např. A1B2C3D4E5" required></label>
+        <button class="save-btn" type="submit">PŘIPOJIT SE K RODINĚ</button>
+      </form>
+      <div id="onboardingMessage" class="auth-message"></div>
+      <button class="text-btn auth-link" id="onboardingLogout" type="button">Odhlásit se</button>
+    </div>
+  </section>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">Kristiánkův profesionální monitoring nákladu</div>
+        <h1>HOVNOLOG <span>💩</span></h1>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" id="openStats" aria-label="HOVNOMETR 📊">📊</button>
+        <button class="account-avatar" id="accountBtn" aria-label="Účet" title="Účet"><span id="accountInitial">J</span></button>
+      </div>
+    </header>
+
+    <section class="child-bar card">
+      <div class="child-icon" id="activeChildAvatar"><span>👶</span><img alt="" hidden></div>
+      <label><span>AKTIVNÍ DÍTĚ</span><select id="childSelect"></select></label>
+      <button class="child-edit-btn child-add-btn" id="addChildBtn" aria-label="Přidat další dítě">＋</button>
+      <button class="child-edit-btn" id="editChildBtn" aria-label="Upravit údaje dítěte">✎</button>
+    </section>
+
+    <main>
+      <section class="hero card">
+        <div class="diaper">🧷</div>
+        <div>
+          <div class="muted">POSLEDNÍ ZÁSILKA</div>
+          <div class="hero-main" id="lastPoop">Plenka hlásí klid 🧷</div>
+          <div class="hero-sub" id="lastPoopSub">Čekáme na první zásilku…</div>
+        </div>
+      </section>
+
+      <button class="add-btn" id="addPoop">💩 PŘIDAT HOVNO</button>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>POSLEDNÍCH 7 DNÍ</h2>
+          <button class="text-btn" id="openHistory">ARCHIV PLENEK →</button>
+        </div>
+        <div id="weekList" class="week-list"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><h2>RYCHLÝ HOVNOMETR</h2></div>
+        <div class="stats-grid">
+          <div class="mini card"><span>💩</span><b id="statCount">0</b><small>za 7 dní</small></div>
+          <div class="mini card"><span>📈</span><b id="statAvg">—</b><small>průměr</small></div>
+          <div class="mini card"><span>☢️</span><b id="stat11">0</b><small>úniky z plenky</small></div>
+        </div>
+      </section>
+    
+<section class="section v5-section">
+  <div class="section-head"><h2>🏆 KRISTIÁNKOVA SÍŇ REKORDŮ</h2></div>
+  <button class="analytics-btn" id="openAdvanced">💩 OTEVŘÍT ADVANCED ANALYTICS</button>
+</section>
+</main>
+
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-view="home">🏠<span>Domů</span></button>
+      <button class="nav-btn" id="navAdd">💩<span>Přidat</span></button>
+      <button class="nav-btn" data-view="history">🗂️<span>ARCHIV PLENEK</span></button>
+      <button class="nav-btn" data-view="stats">📊<span>HOVNOMETR 📊</span></button>
+    </nav>
+  </div>
+
+  <dialog id="entryDialog" class="sheet">
+    <form method="dialog" id="entryForm">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">
+        <div>
+          <div class="eyebrow">Nová plenka</div>
+          <h2>💩 Přidat hovno</h2>
+        </div>
+        <button type="button" class="icon-btn" id="closeEntry">✕</button>
+      </div>
+
+      <div class="field-row">
+        <label>Datum<input type="date" id="entryDate" required></label>
+        <label>Čas<input type="time" id="entryTime" required></label>
+      </div>
+
+      <label class="label">STUPEŇ KATASTROFY</label>
+      <div class="rating-grid" id="ratingGrid"></div>
+      <div class="rating-caption" id="ratingCaption">Vyber skóre 1–10, nebo speciální 11/10 mimo plenu</div>
+
+      <label>HLÁŠENÍ Z MÍSTA ČINU <span class="muted">(nepovinné)</span>
+        <textarea id="entryNote" rows="2" placeholder="Např. po mrkvi, podezřele zelené…"></textarea>
+      </label>
+
+      <input type="hidden" id="editId">
+      <button class="save-btn" type="submit">💾 ZAÚČTOVAT NÁKLAD</button>
+    </form>
+  </dialog>
+
+  <dialog id="panelDialog" class="panel">
+    <div class="panel-inner">
+      <div class="sheet-title sticky">
+        <div><div class="eyebrow" id="panelEyebrow">Přehled</div><h2 id="panelTitle">ARCHIV PLENEK</h2></div>
+        <button class="icon-btn" id="closePanel">✕</button>
+      </div>
+      <div id="panelContent"></div>
+    </div>
+  </dialog>
+
+  <dialog id="childDialog" class="sheet profile-sheet">
+    <form id="childForm">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">
+        <div><div class="eyebrow">Rodinný profil</div><h2 id="childDialogTitle">👶 Údaje dítěte</h2></div>
+        <button type="button" class="icon-btn" id="closeChild">✕</button>
+      </div>
+      <label>JMÉNO<input id="childName" maxlength="60" required></label>
+      <label>PŘEZDÍVKA <span class="muted">(nepovinné)</span><input id="childNickname" maxlength="60" placeholder="Jak mu doma říkáte"></label>
+      <label>DATUM NAROZENÍ <span class="muted">(nepovinné)</span><input type="date" id="childBirthDate"></label>
+      <label>POZNÁMKA <span class="muted">(nepovinné)</span><textarea id="childNotes" rows="3" maxlength="500" placeholder="Např. alergie, oblíbené jídlo nebo cokoli důležitého"></textarea></label>
+      <section class="child-photo-field" id="childPhotoField">
+        <div class="child-photo-preview" id="childPhotoPreview"><span>👶</span><img alt="Náhled fotografie dítěte" hidden></div>
+        <div class="child-photo-actions">
+          <b>FOTOGRAFIE DÍTĚTE <span class="muted">(nepovinné)</span></b>
+          <small>Fotku zmenšíme přímo v telefonu a uložíme soukromě.</small>
+          <input type="file" id="childPhotoInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" hidden>
+          <div><button type="button" id="chooseChildPhoto">Vybrat fotku</button><button type="button" id="removeChildPhoto" class="photo-remove">Odstranit</button></div>
+        </div>
+      </section>
+      <p class="child-save-status" id="childSaveStatus" role="status" aria-live="polite"></p>
+      <button class="save-btn" id="childSaveBtn" type="submit">ULOŽIT PROFIL DÍTĚTE</button>
+    </form>
+  </dialog>
+
+  <dialog id="accountDialog" class="account-dialog">
+    <div class="account-card">
+      <button class="account-close" id="closeAccount" aria-label="Zavřít">✕</button>
+      <div class="account-avatar account-avatar-large"><span id="accountInitialLarge">J</span></div>
+      <b id="currentUser">—</b>
+      <small id="currentEmail">—</small>
+      <div class="invite-box">
+        <span>RODINNÝ KÓD</span>
+        <b id="familyInviteCode">—</b>
+        <button id="copyInviteCode" type="button">Kopírovat kód</button>
+      </div>
+      <section class="access-admin" id="accessAdminSection" hidden>
+        <div class="access-admin-title"><span>SPRÁVA PŘÍSTUPŮ</span><small>Vidíte pouze vy</small></div>
+        <form id="approveAccessForm">
+          <input type="email" id="approveAccessEmail" placeholder="e-mail nového uživatele" required>
+          <button type="submit">Povolit e-mail</button>
+        </form>
+        <div class="access-admin-message" id="accessAdminMessage" role="status"></div>
+        <div class="access-list" id="accessList"></div>
+      </section>
+      <button class="logout-btn" id="logoutBtn">Odhlásit se</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
