@@ -125,6 +125,7 @@
       <button class="nav-btn" id="navAdd">💩<span>Přidat</span></button>
       <button class="nav-btn" data-view="history">🗂️<span>ARCHIV PLENEK</span></button>
       <button class="nav-btn" data-view="stats">📊<span>HOVNOMETR 📊</span></button>
+      <button class="nav-btn" data-view="medication">💊<span>MEDIKACE</span></button>
     </nav>
   </div>
 
@@ -165,6 +166,19 @@
       </div>
       <div id="panelContent"></div>
     </div>
+  </dialog>
+
+  <dialog id="medicationDialog" class="sheet">
+    <form id="medicationForm">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title"><div><div class="eyebrow">Kristiánek</div><h2>💊 Přidat medikaci</h2></div><button type="button" class="icon-btn" id="closeMedication">✕</button></div>
+      <label>LÉK<select id="medicationName"><option>Paralen</option><option>Nurofen</option><option>Jiný lék</option></select></label>
+      <label>ČAS PODÁNÍ<input type="datetime-local" id="medicationGivenAt" required></label>
+      <label>DALŠÍ MOŽNÝ ČAS <span class="muted">(podle příbalového letáku nebo lékaře)</span><input type="datetime-local" id="medicationNextAt"></label>
+      <label>POZNÁMKA <span class="muted">(nepovinné)</span><textarea id="medicationNote" rows="2" placeholder="Např. teplota, důvod podání…"></textarea></label>
+      <p class="auth-info">Aplikace dávkování neurčuje. Ověřte vždy příbalový leták nebo lékaře.</p>
+      <button class="save-btn" type="submit">💾 ULOŽIT PODÁNÍ</button>
+    </form>
   </dialog>
 
   <dialog id="childDialog" class="sheet profile-sheet">
